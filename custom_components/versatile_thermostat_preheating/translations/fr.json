@@ -20,6 +20,7 @@
           "main": "Principaux Attributs",
           "central_boiler": "Chauffage central",
           "type": "Sous-jacents",
+          "preheating": "Préchauffage",
           "tpi": "Paramètres TPI",
           "features": "Fonctions",
           "presets": "Pre-réglages",
@@ -283,6 +284,7 @@
           "tpi": "Paramètres TPI",
           "features": "Fonctions",
           "presets": "Pre-réglages",
+          "preheating": "Préchauffage",
           "window": "Détection d'ouvertures",
           "motion": "Détection de mouvement",
           "power": "Gestion de la puissance",
@@ -391,6 +393,10 @@
         "data": {
           "use_presets_central_config": "Utiliser la configuration des pré-réglages centrale"
         }
+      },
+      "preheating": {
+        "title": "Préchauffage (Early Start)",
+        "description": "Ajustez l’anticipation de chauffe."
       },
       "window": {
         "title": "Ouverture - {name}",

@@ -1,0 +1,19 @@
+{
+  "domain": "versatile_thermostat_preheating",
+  "name": "Versatile Thermostat PreHeating",
+  "codeowners": [
+    "@bchandroid"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/bchandroid/versatile_thermostat_preheating",
+  "homekit": {},
+  "integration_type": "device",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/bchandroid/versatile_thermostat_preheating",
+  "quality_scale": "silver",
+  "requirements": [],
+  "ssdp": [],
+  "version": "0.0.2",
+  "zeroconf": []
+}

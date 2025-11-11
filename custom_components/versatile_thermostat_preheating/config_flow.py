@@ -19,6 +19,13 @@ from homeassistant.config_entries import (
 
 from homeassistant.data_entry_flow import FlowHandler, FlowResult
 
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector, NumberSelectorConfig,
+    EntitySelector, EntitySelectorConfig,
+    SelectSelector, SelectSelectorConfig,
+)
+
 from .const import *  # pylint: disable=wildcard-import, unused-wildcard-import
 from .config_schema import *  # pylint: disable=wildcard-import, unused-wildcard-import
 from .vtherm_api import VersatileThermostatAPI
@@ -27,6 +34,7 @@ from .commons import check_and_extract_service_configuration
 COMES_FROM = "comes_from"
 
 _LOGGER = logging.getLogger(__name__)
+
 
 def add_suggested_values_to_schema(
     data_schema: vol.Schema, suggested_values: Mapping[str, Any]
@@ -195,6 +203,8 @@ class VersatileThermostatBaseConfigFlow(FlowHandler):
             CONF_OFFSET_CALIBRATION_LIST,
             CONF_OPENING_DEGREE_LIST,
             CONF_CLOSING_DEGREE_LIST,
+            OPT_EARLY_SCHED,
+            OPT_OUTDOOR,
         ]:
             d = data.get(conf, None)  # pylint: disable=invalid-name
             if not isinstance(d, list):
@@ -480,6 +490,7 @@ class VersatileThermostatBaseConfigFlow(FlowHandler):
         menu_options = ["main", "features"]
         if not is_central_config:
             menu_options.append("type")
+            menu_options.append("preheating")
 
         if (
             self._infos.get(CONF_PROP_FUNCTION) == PROPORTIONAL_FUNCTION_TPI
@@ -836,6 +847,73 @@ class VersatileThermostatBaseConfigFlow(FlowHandler):
         # This will return to async_step_power (to keep the "power" step)
         return await self.generic_step("power", schema, user_input, next_step)
 
+    async def async_step_preheating(self, user_input: dict | None = None) -> FlowResult:
+        _LOGGER.debug("Into ConfigFlow.async_step_preheating user_input=%s", user_input)
+        _LOGGER.debug("Into ConfigFlow.async_step_preheating self.infos=%s", self._infos)
+
+        # Schéma complet si activé
+        ui_schema = vol.Schema({
+                        vol.Required(OPT_EARLY_ENABLED,
+                        default=self._infos.get(OPT_EARLY_ENABLED, DEFAULTS[OPT_EARLY_ENABLED])): BooleanSelector(),
+        })
+
+        return await self.generic_step("preheating", ui_schema, user_input, self.async_step_preheating_params)
+
+
+    async def async_step_preheating_params(self, user_input: dict | None = None) -> FlowResult:
+        _LOGGER.debug("Into ConfigFlow.async_step_preheating_params", user_input)
+        next_step = self.async_step_menu
+        if not self._infos.get(OPT_EARLY_ENABLED):
+            return await next_step()
+        else:
+            self._infos[OPT_EARLY_ENABLED] = True
+            # Schéma complet si activé
+            ui_schema = vol.Schema({
+                vol.Optional(OPT_EARLY_SCHED, default=self._infos.get(OPT_EARLY_SCHED)): EntitySelector(
+                    EntitySelectorConfig(domain=["switch"])
+                ),
+                vol.Required(OPT_EARLY_MODE,
+                             default=self._infos.get(OPT_EARLY_MODE, DEFAULTS[OPT_EARLY_MODE])): SelectSelector(
+                    SelectSelectorConfig(options=EARLY_MODES)
+                ),
+                vol.Optional(OPT_EARLY_TEMP, default=self._infos.get(OPT_EARLY_TEMP)): NumberSelector(
+                    NumberSelectorConfig(min=5, max=30, step=0.1)
+                ),
+                vol.Required(OPT_FALLBACK_RATE,
+                             default=self._infos.get(OPT_FALLBACK_RATE, DEFAULTS[OPT_FALLBACK_RATE])): NumberSelector(
+                    NumberSelectorConfig(min=0.1, max=6.0, step=0.1)
+                ),
+                vol.Required(OPT_LEAD_MIN, default=self._infos.get(OPT_LEAD_MIN, DEFAULTS[OPT_LEAD_MIN])): NumberSelector(
+                    NumberSelectorConfig(min=0, max=180, step=1)
+                ),
+                vol.Required(OPT_LEAD_MAX, default=self._infos.get(OPT_LEAD_MAX, DEFAULTS[OPT_LEAD_MAX])): NumberSelector(
+                    NumberSelectorConfig(min=0, max=240, step=1)
+                ),
+                vol.Optional(OPT_OUTDOOR, default=self._infos.get(OPT_OUTDOOR)): EntitySelector(
+                    EntitySelectorConfig(domain=["sensor"])
+                ),
+                vol.Required(OPT_ONLY_IF_HEATING, default=self._infos.get(OPT_ONLY_IF_HEATING, DEFAULTS[
+                    OPT_ONLY_IF_HEATING])): BooleanSelector(),
+                vol.Required(OPT_HEAT_TOLERANCE,
+                             default=self._infos.get(OPT_HEAT_TOLERANCE, DEFAULTS[OPT_HEAT_TOLERANCE])): NumberSelector(
+                    NumberSelectorConfig(min=0.0, max=1.0, step=0.1)
+                ),
+            })
+
+            # Petite vérif: le mode fixed_temperature impose OPT_EARLY_TEMP
+            if user_input is not None:
+                mode = user_input.get(OPT_EARLY_MODE)
+                if mode == "fixed_temperature" and user_input.get(OPT_EARLY_TEMP) is None:
+                    ds = add_suggested_values_to_schema(ui_schema, {**self._infos, **user_input})
+                    return self.async_show_form(
+                        step_id="preheating",
+                        data_schema=ds,
+                        errors={OPT_EARLY_TEMP: "required"},
+                        description_placeholders=self._placeholders,
+                    )
+
+            return await self.generic_step("preheating_params", ui_schema, user_input, next_step)
+
     async def async_step_presence(self, user_input: dict | None = None) -> FlowResult:
         """Handle the presence management flow steps"""
         _LOGGER.debug("Into ConfigFlow.async_step_presence user_input=%s", user_input)
@@ -953,6 +1031,11 @@ class VersatileThermostatBaseConfigFlow(FlowHandler):
                 del self._infos[CONF_CENTRAL_BOILER_DEACTIVATION_SRV]
         if not self._infos[CONF_USE_AUTO_START_STOP_FEATURE]:
             self._infos[CONF_AUTO_START_STOP_LEVEL] = AUTO_START_STOP_LEVEL_NONE
+        if not self._infos.get(OPT_EARLY_ENABLED, False):
+            for k in (OPT_EARLY_SCHED, OPT_EARLY_MODE, OPT_EARLY_TEMP, OPT_FALLBACK_RATE,
+                      OPT_LEAD_MIN, OPT_LEAD_MAX, OPT_OUTDOOR, OPT_ONLY_IF_HEATING, OPT_HEAT_TOLERANCE):
+                if k in self._infos:
+                    del self._infos[k]
 
         # Removes temporary value
         if COMES_FROM in self._infos:

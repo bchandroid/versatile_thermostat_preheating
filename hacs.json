@@ -1,9 +1,8 @@
 {
-    "name": "Versatile Thermostat",
-    "content_in_root": false,
-    "render_readme": true,
-    "hide_default_branch": false,
-    "filename": "versatile_thermostat.zip",
-    "zip_release": true,
-    "homeassistant": "2025.9.3"
+  "domain": "versatile_thermostat_preheating",
+  "name": "Versatile Thermostat Preheating",
+  "version": "1.0.0",
+  "documentation": "https://github.com/bchandroid/versatile_thermostat_preheating",
+  "codeowners": ["@ton_user"],
+  "iot_class": "local_push"
 }

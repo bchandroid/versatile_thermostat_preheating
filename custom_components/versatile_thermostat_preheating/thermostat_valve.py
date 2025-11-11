@@ -10,6 +10,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.components.climate import HVACMode
+from homeassistant.config_entries import ConfigEntry
 
 from .base_thermostat import BaseThermostat, ConfigData
 from .prop_algorithm import PropAlgorithm
@@ -49,7 +50,7 @@ class ThermostatOverValve(BaseThermostat[UnderlyingValve]):  # pylint: disable=a
     )
 
     def __init__(
-        self, hass: HomeAssistant, unique_id: str, name: str, config_entry: ConfigData
+        self, hass: HomeAssistant, unique_id: str, name: str, config_entry: ConfigEntry
     ):
         """Initialize the thermostat over switch."""
         self._valve_open_percent: int = 0

@@ -396,3 +396,20 @@ STEP_ADVANCED_DATA_SCHEMA = vol.Schema(  # pylint: disable=invalid-name
         vol.Required(CONF_USE_ADVANCED_CENTRAL_CONFIG, default=True): cv.boolean,
     }
 )
+
+STEP_PREHEATING_DATA_SCHEMA = vol.Schema({
+    vol.Required(OPT_EARLY_ENABLED, default=DEFAULTS[OPT_EARLY_ENABLED]): bool,
+    vol.Optional(OPT_EARLY_SCHED): cv.entity_id,         # switch du scheduler
+    vol.Required(OPT_EARLY_MODE, default=DEFAULTS[OPT_EARLY_MODE]): vol.In(EARLY_MODES),
+    vol.Optional(OPT_EARLY_TEMP): vol.Coerce(float),     # requis si mode fixed_temperature
+
+    vol.Required(OPT_FALLBACK_RATE, default=DEFAULTS[OPT_FALLBACK_RATE]): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=6.0)),
+    vol.Required(OPT_LEAD_MIN, default=DEFAULTS[OPT_LEAD_MIN]): vol.All(vol.Coerce(int), vol.Range(min=0, max=180)),
+    vol.Required(OPT_LEAD_MAX, default=DEFAULTS[OPT_LEAD_MAX]): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
+
+    vol.Optional(OPT_OUTDOOR): cv.entity_id,             # sensor optionnel
+
+    # Sécurité : anticiper seulement s'il faut chauffer
+    vol.Required(OPT_ONLY_IF_HEATING, default=DEFAULTS[OPT_ONLY_IF_HEATING]): bool,
+    vol.Required(OPT_HEAT_TOLERANCE, default=DEFAULTS[OPT_HEAT_TOLERANCE]): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+})

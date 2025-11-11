@@ -61,14 +61,14 @@ async def async_setup_entry(
     # Instantiate the right base class
     entity = None
     if vt_type == CONF_THERMOSTAT_SWITCH:
-        entity = ThermostatOverSwitch(hass, unique_id, name, entry.data)
+        entity = ThermostatOverSwitch(hass, unique_id, name, entry)
     elif vt_type == CONF_THERMOSTAT_CLIMATE:
         if have_valve_regulation is True:
-            entity = ThermostatOverClimateValve(hass, unique_id, name, entry.data)
+            entity = ThermostatOverClimateValve(hass, unique_id, name, entry)
         else:
-            entity = ThermostatOverClimate(hass, unique_id, name, entry.data)
+            entity = ThermostatOverClimate(hass, unique_id, name, entry)
     elif vt_type == CONF_THERMOSTAT_VALVE:
-        entity = ThermostatOverValve(hass, unique_id, name, entry.data)
+        entity = ThermostatOverValve(hass, unique_id, name, entry)
     else:
         _LOGGER.error(
             "Cannot create Versatile Thermostat name=%s of type %s which is unknown",
@@ -78,6 +78,14 @@ async def async_setup_entry(
         return
 
     async_add_entities([entity], True)
+
+    # Replanifier le préchauffage si l'utilisateur modifie les options
+    def _on_options_update(hass: HomeAssistant, updated_entry: ConfigEntry):
+        # L’entité expose _early après son async_added_to_hass
+        if getattr(entity, "_early", None):
+            hass.async_create_task(entity._early.async_reschedule())
+
+    entry.async_on_unload(entry.add_update_listener(_on_options_update))
 
     # Add services
     platform = entity_platform.async_get_current_platform()

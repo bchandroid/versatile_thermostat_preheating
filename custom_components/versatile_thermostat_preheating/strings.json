@@ -19,6 +19,7 @@
           "main": "Main attributes",
           "central_boiler": "Central boiler",
           "type": "Underlyings",
+          "preheating": "Pre heating",
           "tpi": "TPI parameters",
           "features": "Features",
           "presets": "Presets",
@@ -101,6 +102,10 @@
           "auto_fan_mode": "Automatically activate fan when huge heating/cooling is necessary",
           "on_command_text": "For underlying of type `select` or `climate` you have to customize the commands."
         }
+      },
+      "preheating": {
+          "title": "Pre heating (Early Start)",
+          "description": "Parameters for pre heating."
       },
       "tpi": {
         "title": "TPI",
@@ -279,6 +284,7 @@
           "central_boiler": "Central boiler",
           "type": "Underlyings",
           "tpi": "TPI parameters",
+          "preheating": "Pre heating",
           "features": "Features",
           "presets": "Presets",
           "window": "Window detection",
@@ -382,6 +388,10 @@
           "minimal_activation_delay": "Delay in seconds under which the equipment will not be activated",
           "minimal_deactivation_delay": "Delay in seconds under which the equipment will be kept active"
         }
+      },
+      "preheating": {
+        "title": "Pre Heating (Early Start)",
+        "description": "Parameters for pre heating"
       },
       "presets": {
         "title": "Presets - {name}",

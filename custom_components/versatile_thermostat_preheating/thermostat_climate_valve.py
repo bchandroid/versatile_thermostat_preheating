@@ -6,7 +6,7 @@ from datetime import datetime
 
 from homeassistant.core import HomeAssistant, State
 from homeassistant.components.climate import HVACMode, HVACAction
-
+from homeassistant.config_entries import ConfigEntry
 from .underlyings import UnderlyingValveRegulation
 
 # from .commons import NowClass, round_to_nearest
@@ -43,7 +43,7 @@ class ThermostatOverClimateValve(ThermostatOverClimate):
     )
 
     def __init__(
-        self, hass: HomeAssistant, unique_id: str, name: str, entry_infos: ConfigData
+        self, hass: HomeAssistant, unique_id: str, name: str, config_entry: ConfigEntry
     ):
         """Initialize the ThermostatOverClimateValve class"""
         _LOGGER.debug("%s - creating a ThermostatOverClimateValve VTherm", name)
@@ -56,7 +56,7 @@ class ThermostatOverClimateValve(ThermostatOverClimate):
         # if mode sleep is activated, the valve is fully open but the hvac_mode is off
         self._is_sleeping: bool = False
 
-        super().__init__(hass, unique_id, name, entry_infos)
+        super().__init__(hass, unique_id, name, config_entry)
 
     @overrides
     def post_init(self, config_entry: ConfigData):

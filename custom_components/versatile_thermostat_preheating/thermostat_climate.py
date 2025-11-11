@@ -5,6 +5,7 @@ from datetime import timedelta, datetime
 
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
@@ -57,7 +58,7 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
     )
 
     def __init__(
-        self, hass: HomeAssistant, unique_id: str, name: str, entry_infos: ConfigData
+        self, hass: HomeAssistant, unique_id: str, name: str, config_entry: ConfigEntry
     ):
         """Initialize the thermostat over switch."""
         self._auto_regulation_mode: str | None = None
@@ -77,7 +78,7 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
         self._last_regulation_change = None  # NowClass.get_now(hass)
 
         # super.__init__ calls post_init at the end. So it must be called after regulation initialization
-        super().__init__(hass, unique_id, name, entry_infos)
+        super().__init__(hass, unique_id, name, config_entry)
         self._regulated_target_temp = self.target_temperature
 
     @overrides

@@ -47,7 +47,7 @@ PRESET_FROST_PROTECTION = "frost"
 
 HIDDEN_PRESETS = [PRESET_POWER, PRESET_SAFETY]
 
-DOMAIN = "versatile_thermostat"
+DOMAIN = "versatile_thermostat_preheating"
 
 # The order is important.
 PLATFORMS: list[Platform] = [
@@ -100,6 +100,7 @@ CONF_USE_WINDOW_FEATURE = "use_window_feature"
 CONF_USE_MOTION_FEATURE = "use_motion_feature"
 CONF_USE_PRESENCE_FEATURE = "use_presence_feature"
 CONF_USE_POWER_FEATURE = "use_power_feature"
+CONF_USE_PREHEATING = "use_preheating"
 CONF_USE_CENTRAL_BOILER_FEATURE = "use_central_boiler_feature"
 CONF_USE_AUTO_START_STOP_FEATURE = "use_auto_start_stop_feature"
 CONF_AC_MODE = "ac_mode"
@@ -191,6 +192,31 @@ TYPE_AUTO_START_STOP_LEVELS = Literal[  # pylint: disable=invalid-name
     AUTO_START_STOP_LEVEL_VERY_SLOW,
     AUTO_START_STOP_LEVEL_NONE,
 ]
+
+OPT_EARLY_ENABLED = "early_start_enabled"
+OPT_EARLY_SCHED   = "early_start_scheduler"
+OPT_EARLY_MODE    = "early_start_mode"         # comfort_preset | fixed_temperature | auto_from_scheduler
+OPT_EARLY_TEMP    = "early_start_fixed_temp"
+OPT_FALLBACK_RATE = "fallback_rate_c_per_h"
+OPT_LEAD_MIN      = "min_lead_minutes"
+OPT_LEAD_MAX      = "max_lead_minutes"
+OPT_OUTDOOR       = "outdoor_temp_entity"
+
+# NOUVEAU : options de sécurité / conditions
+OPT_ONLY_IF_HEATING = "early_start_only_if_heating"
+OPT_HEAT_TOLERANCE  = "early_start_heat_tolerance_c"  # marge pour éviter de déclencher pour 0.1°C
+
+EARLY_MODES = ["comfort_preset", "fixed_temperature", "auto_from_scheduler"]
+
+DEFAULTS = {
+    OPT_EARLY_ENABLED: False,
+    OPT_EARLY_MODE: "comfort_preset",
+    OPT_FALLBACK_RATE: 1.5,
+    OPT_LEAD_MIN: 5,
+    OPT_LEAD_MAX: 120,
+    OPT_ONLY_IF_HEATING: True,     # demandé
+    OPT_HEAT_TOLERANCE: 0.2        # °C
+}
 
 HVAC_OFF_REASON_NAME = "hvac_off_reason"
 HVAC_OFF_REASON_MANUAL = "manual"

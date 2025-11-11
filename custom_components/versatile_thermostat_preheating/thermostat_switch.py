@@ -3,6 +3,7 @@
 """ A climate over switch classe """
 import logging
 from homeassistant.core import Event, callback
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     EventStateChangedData,

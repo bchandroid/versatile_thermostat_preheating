@@ -56,6 +56,7 @@ from .const import *  # pylint: disable=wildcard-import, unused-wildcard-import
 from .commons_type import ConfigData, T
 
 from .config_schema import *  # pylint: disable=wildcard-import, unused-wildcard-import
+from .early_start import EarlyStart
 
 from .vtherm_api import VersatileThermostatAPI
 from .underlyings import UnderlyingEntity
@@ -132,7 +133,7 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
         hass: HomeAssistant,
         unique_id: str,
         name: str,
-        entry_infos: ConfigData,
+        entry: ConfigEntry,
     ):
         """Initialize the thermostat."""
 
@@ -142,6 +143,7 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
         self._enable_turn_on_off_backwards_compatibility = False
 
         self._hass = hass
+        self._entry = entry
         self._entry_infos = None
         self._attr_extra_state_attributes = {}
 
@@ -206,6 +208,9 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
 
         self._attr_preset_modes: list[str] = []
 
+        self._early = None
+        self._early_start_info = None
+
         self._use_central_config_temperature = False
 
         self._hvac_off_reason: str | None = None
@@ -233,7 +238,7 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
         self.register_manager(self._window_manager)
         self.register_manager(self._safety_manager)
 
-        self.post_init(entry_infos)
+        self.post_init(entry.data)
 
     def register_manager(self, manager: BaseFeatureManager):
         """Register a manager"""
@@ -465,6 +470,10 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
                     self._async_ext_temperature_changed,
                 )
             )
+
+        _LOGGER.warning("EarlyStart INIT on %s", self.entity_id)
+        self._early = EarlyStart(self.hass, self)  # on passe l’entité elle-même
+        await self._early.async_init()
 
         self.async_on_remove(self.remove_thermostat)
 
@@ -1305,6 +1314,9 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
         else:
             self._saved_target_temp = temperature
 
+        if self._early:
+            await self._early.async_reschedule()
+
     async def change_target_temperature(self, temperature: float, force=False):
         """Set the target temperature and the target temperature
          of underlying climate if any"""
@@ -1509,6 +1521,8 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
             and self._saved_preset_mode is not None
         ):
             await self.async_set_preset_mode_internal(self._saved_preset_mode, force=force)
+        if self._early:
+            await self._early.async_reschedule()
 
     def save_hvac_mode(self):
         """Save the current hvac-mode to be restored later"""
@@ -1739,10 +1753,19 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
             "last_change_time_from_vtherm": (
                 self._last_change_time_from_vtherm.astimezone(self._current_tz).isoformat() if self._last_change_time_from_vtherm is not None else None
             ),
+
         }
+
+        info = self._early_start_info or {}
+        if info:
+            self._attr_extra_state_attributes["early_start_next_fire"] = info.get("next_fire_utc")
+            self._attr_extra_state_attributes["early_start_lead_minutes"] = info.get("lead_minutes")
+            self._attr_extra_state_attributes["early_start_heat_rate_c_per_h"] = info.get("heat_rate_c_per_h")
 
         for manager in self._managers:
             manager.add_custom_attributes(self._attr_extra_state_attributes)
+
+
 
     @overrides
     def async_write_ha_state(self):

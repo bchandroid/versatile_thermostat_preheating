@@ -113,3 +113,8 @@ custom_components/localtuya
 
 .coverage
 htmlcov
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+.idea/versatile_thermostat_preheating.iml
