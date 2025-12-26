@@ -53,6 +53,7 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
                 "auto_deactivated_fan_mode",
                 "auto_regulation_use_device_temp",
                 "follow_underlying_temp_change",
+                "control_central_boiler",
             }
         ).union(FeatureAutoStartStopManager.unrecorded_attributes)
     )
@@ -75,7 +76,9 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
         self._auto_activated_fan_mode: str | None = None
         self._auto_deactivated_fan_mode: str | None = None
         self._follow_underlying_temp_change: bool = False
+        self.control_central_boiler: bool = config_entry.data.get(CONF_USED_BY_CENTRAL_BOILER, False)
         self._last_regulation_change = None  # NowClass.get_now(hass)
+        self.config_entry = config_entry
 
         # super.__init__ calls post_init at the end. So it must be called after regulation initialization
         super().__init__(hass, unique_id, name, config_entry)
@@ -555,6 +558,10 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
             self._follow_underlying_temp_change
         )
 
+        self._attr_extra_state_attributes["control_central_boiler"] = (
+            self._control_central_boiler
+        )
+
         self.async_write_ha_state()
 
         _LOGGER.debug(
@@ -912,6 +919,8 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
                     self,
                 )
 
+        self.config_entry.set(CONF_USED_BY_CENTRAL_BOILER, self._control_central_boiler)
+
         await end_climate_changed(changes)
 
     @overrides
@@ -937,6 +946,11 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
     def set_follow_underlying_temp_change(self, follow: bool):
         """Set the flaf follow the underlying temperature changes"""
         self._follow_underlying_temp_change = follow
+        self.update_custom_attributes()
+
+    def set_used_by_central_boiler(self, controlCentral: bool):
+        """Set if the climate control central boiler"""
+        self._control_central_boiler = controlCentral
         self.update_custom_attributes()
 
     @property

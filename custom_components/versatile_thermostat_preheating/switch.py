@@ -35,7 +35,7 @@ async def async_setup_entry(
     vt_type = entry.data.get(CONF_THERMOSTAT_TYPE)
     auto_start_stop_feature = entry.data.get(CONF_USE_AUTO_START_STOP_FEATURE)
 
-    entities = []
+    entities = [UsedByCentralBoilerSwitch(hass, unique_id, name, entry)]
     if vt_type == CONF_THERMOSTAT_CLIMATE:
         entities.append(FollowUnderlyingTemperatureChange(hass, unique_id, name, entry))
 
@@ -154,6 +154,76 @@ class FollowUnderlyingTemperatureChange(
         self.async_write_ha_state()
         if self.my_climate is not None:
             self.my_climate.set_follow_underlying_temp_change(self._attr_is_on)
+
+    @callback
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the entity on."""
+        self.turn_on()
+
+    @callback
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the entity off."""
+        self.turn_off()
+
+    @overrides
+    def turn_off(self, **kwargs: Any):
+        self._attr_is_on = False
+        self.update_my_state_and_vtherm()
+
+    @overrides
+    def turn_on(self, **kwargs: Any):
+        self._attr_is_on = True
+        self.update_my_state_and_vtherm()
+
+
+class UsedByCentralBoilerSwitch(
+    VersatileThermostatBaseEntity, SwitchEntity, RestoreEntity
+):
+    """The that enables the ManagedDevice optimisation with"""
+
+    def __init__(
+        self, hass: HomeAssistant, unique_id: str, name: str, entry_infos: ConfigEntry
+    ):
+        _LOGGER.debug("Calling initUsedByCentralBoilerSwitch unique_id=%s", unique_id)
+        super().__init__(hass, unique_id, name)
+        self._attr_name = "Controle la chaudiere centrale"
+        self._attr_unique_id = f"{self._device_name}__used_by_central_boile"
+        self._attr_is_on =  entry_infos.data.get(CONF_USED_BY_CENTRAL_BOILER, False)
+        self._attr_entity_category = EntityCategory.CONFIG
+        _LOGGER.debug("End of initUsedByCentralBoilerSwitch unique_id=%s", unique_id)
+
+    @property
+    def icon(self) -> str | None:
+        """The icon"""
+        _LOGGER.debug("End of UsedByCentralBoilerSwitchicon")
+        return "mdi:water-boiler"
+
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+
+        # Récupérer le dernier état sauvegardé de l'entité
+        last_state = await self.async_get_last_state()
+
+        # Si l'état précédent existe, vous pouvez l'utiliser
+        if last_state is not None:
+            self._attr_is_on = last_state.state == "on"
+        else:
+            # If no previous state set it to false by default
+            self._attr_is_on = False
+
+        self.update_my_state_and_vtherm()
+
+    def update_my_state_and_vtherm(self):
+        """Update the follow flag in my VTherm"""
+        self.async_write_ha_state()
+        if self.my_climate is not None:
+            self.my_climate.set_used_by_central_boiler(self._attr_is_on)
+        #new_data = {**self._entry.data, CONF_USED_BY_CENTRAL_BOILER: self._attr_is_on}
+        #self.hass.config_entries.async_update_entry(self._entry, data=new_data)
+        #self.async_write_ha_state()
+        #if self.my_climate is not None:
+        #    self.my_climate.set_follow_underlying_temp_change(self._attr_is_on)
 
     @callback
     async def async_turn_on(self, **kwargs: Any) -> None:
