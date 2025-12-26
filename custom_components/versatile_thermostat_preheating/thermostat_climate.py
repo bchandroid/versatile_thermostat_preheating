@@ -135,20 +135,42 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
 
     def calculate_hvac_action(self, under_list: list) -> HVACAction | None:
         """Calculate an hvac action based on the hvac_action of the list in argument"""
-        # if one not IDLE or OFF -> return it
-        # else if one IDLE -> IDLE
-        # else OFF
+
+        _LOGGER.debug("=== calculate_hvac_action() START %s ===", self)
         one_idle = False
-        for under in under_list:
-            if (action := under.hvac_action) not in [
-                HVACAction.IDLE,
-                HVACAction.OFF,
-            ]:
+
+        for idx, under in enumerate(under_list):
+            action = under.hvac_action
+            _LOGGER.debug(
+                "[HVAC-ACTION] Underlying #%s: entity=%s hvac_action=%s",
+                idx,
+                getattr(under, "entity_id", "<unknown>"),
+                action,
+            )
+
+            # Si une action n'est NI IDLE NI OFF → on la renvoie immédiatement
+            if action not in [HVACAction.IDLE, HVACAction.OFF]:
+                _LOGGER.debug(
+                    "[HVAC-ACTION] -> Returning %s because one underlying is actively heating/cooling",
+                    action,
+                )
                 return action
-            if under.hvac_action == HVACAction.IDLE:
+
+            # Si au moins une est IDLE → on le note
+            if action == HVACAction.IDLE:
                 one_idle = True
+
+        # Si aucune action active trouvée mais au moins une IDLE → IDLE
         if one_idle:
+            _LOGGER.debug(
+                "[HVAC-ACTION] -> Returning IDLE because no active HVAC action found but at least one IDLE"
+            )
             return HVACAction.IDLE
+
+        # Sinon toutes sont OFF
+        _LOGGER.debug(
+            "[HVAC-ACTION] -> Returning OFF because all underlying entities are OFF"
+        )
         return HVACAction.OFF
 
     @property
@@ -699,6 +721,19 @@ class ThermostatOverClimate(BaseThermostat[UnderlyingClimate]):
         # if self._hvac_mode == HVACMode.OFF and new_hvac_action == HVACAction.IDLE:
         #    _LOGGER.debug("The underlying switch to idle instead of OFF. We will consider it as OFF")
         #    new_hvac_mode = HVACMode.OFF
+        _LOGGER.debug(
+                "%s - new_hvac_mode = %s currently hvac_mode = %s",
+                self,
+                new_hvac_mode,
+                self._hvac_mode,
+            )
+        _LOGGER.debug(
+                "%s - new_hvac_action = %s old_hvac_action = %s",
+                self,
+                new_hvac_action,
+                old_hvac_action,
+            )
+        
 
         # Forget event when the event holds no real changes
         if (

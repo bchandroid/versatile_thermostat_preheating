@@ -208,6 +208,10 @@ class ThermostatOverValve(BaseThermostat[UnderlyingValve]):  # pylint: disable=a
 
         if self._last_calculation_timestamp is not None:
             period = (now - self._last_calculation_timestamp).total_seconds() / 60
+            _LOGGER.info(
+                    "%s - Check lastCalculation now=%s lastCalculation=%s period=%.2f",
+                    self, now, self._last_calculation_timestamp, period
+                )
             if period < self._auto_regulation_period_min:
                 _LOGGER.info(
                     "%s - do not calculate TPI because regulation_period (%d) is not exceeded",

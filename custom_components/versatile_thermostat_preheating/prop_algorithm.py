@@ -101,6 +101,13 @@ class PropAlgorithm:
         slope: float | None,
         hvac_mode: HVACMode,
     ):
+        _LOGGER.debug(
+                    "%s - Enter Proportional algorithm calculation target_temp=%f current_temp=%f slope=%f",
+                    self._vtherm_entity_id,
+                    target_temp,
+                    current_temp,
+                    slope
+                )
         """Do the calculation of the duration"""
         if target_temp is None or current_temp is None:
             log = _LOGGER.debug if hvac_mode == HVACMode.OFF else _LOGGER.warning

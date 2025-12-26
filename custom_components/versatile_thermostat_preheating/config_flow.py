@@ -861,41 +861,92 @@ class VersatileThermostatBaseConfigFlow(FlowHandler):
 
 
     async def async_step_preheating_params(self, user_input: dict | None = None) -> FlowResult:
-        _LOGGER.debug("Into ConfigFlow.async_step_preheating_params", user_input)
+        _LOGGER.debug("Into ConfigFlow.async_step_preheating_params %s", user_input)
         next_step = self.async_step_menu
+
         if not self._infos.get(OPT_EARLY_ENABLED):
             return await next_step()
         else:
             self._infos[OPT_EARLY_ENABLED] = True
+
+            # 🔧 Récupération + normalisation du default pour OPT_EARLY_SCHED
+            # 1) d'abord ce qui est déjà dans _infos (options actuelles)
+            default_sched = self._infos.get(OPT_EARLY_SCHED)
+            _LOGGER.debug("Into ConfigFlow.async_step_preheating_params 1 default_sched=%s", default_sched)
+
+            # 2) si rien, on tente de récupérer depuis la config_entry (anciens installs)
+            try:
+                ce = self.config_entry  # ou self._config_entry selon ton code
+            except AttributeError:
+                ce = None
+
+            if default_sched is None and ce is not None:
+                # priorité aux options, puis aux data (ancien stockage)
+                default_sched = (
+                    ce.options.get(OPT_EARLY_SCHED)
+                    or ce.data.get(OPT_EARLY_SCHED)
+                )
+            
+            _LOGGER.debug("Into ConfigFlow.async_step_preheating_params 2 default_sched=%s", default_sched)
+
+            # 3) normalisation en liste pour supporter ancien format string
+            if isinstance(default_sched, str):
+                default_sched = [default_sched]
+            elif default_sched is None:
+                default_sched = []
+            else:
+                try:
+                    default_sched = [s for s in default_sched if s]
+                except TypeError:
+                    default_sched = [str(default_sched)]
+
+            
+            _LOGGER.debug("Into ConfigFlow.async_step_preheating_params 3 default_sched=%s", default_sched)
+
+            self._infos[OPT_EARLY_SCHED] = default_sched
+
             # Schéma complet si activé
             ui_schema = vol.Schema({
-                vol.Optional(OPT_EARLY_SCHED, default=self._infos.get(OPT_EARLY_SCHED)): EntitySelector(
-                    EntitySelectorConfig(domain=["switch"])
+                vol.Optional(
+                    OPT_EARLY_SCHED,
+                    default=default_sched,
+                ): EntitySelector(
+                    EntitySelectorConfig(
+                        domain=["switch"],
+                        multiple=True,
+                    )
                 ),
-                vol.Required(OPT_EARLY_MODE,
-                             default=self._infos.get(OPT_EARLY_MODE, DEFAULTS[OPT_EARLY_MODE])): SelectSelector(
+
+                vol.Required(
+                    OPT_EARLY_MODE,
+                    default=self._infos.get(OPT_EARLY_MODE, DEFAULTS[OPT_EARLY_MODE]),
+                ): SelectSelector(
                     SelectSelectorConfig(options=EARLY_MODES)
                 ),
-                vol.Optional(OPT_EARLY_TEMP, default=self._infos.get(OPT_EARLY_TEMP)): NumberSelector(
-                    NumberSelectorConfig(min=5, max=30, step=0.1)
+
+                vol.Optional(
+                    OPT_HEAT_RATE_COEF,
+                    default=2.0,
+                ): NumberSelector(
+                    NumberSelectorConfig(min=0.0, max=5.0, step=0.1)
                 ),
-                vol.Required(OPT_FALLBACK_RATE,
-                             default=self._infos.get(OPT_FALLBACK_RATE, DEFAULTS[OPT_FALLBACK_RATE])): NumberSelector(
-                    NumberSelectorConfig(min=0.1, max=6.0, step=0.1)
-                ),
-                vol.Required(OPT_LEAD_MIN, default=self._infos.get(OPT_LEAD_MIN, DEFAULTS[OPT_LEAD_MIN])): NumberSelector(
-                    NumberSelectorConfig(min=0, max=180, step=1)
-                ),
-                vol.Required(OPT_LEAD_MAX, default=self._infos.get(OPT_LEAD_MAX, DEFAULTS[OPT_LEAD_MAX])): NumberSelector(
-                    NumberSelectorConfig(min=0, max=240, step=1)
-                ),
-                vol.Optional(OPT_OUTDOOR, default=self._infos.get(OPT_OUTDOOR)): EntitySelector(
+
+                vol.Optional(
+                    OPT_OUTDOOR,
+                    default=self._infos.get(OPT_OUTDOOR),
+                ): EntitySelector(
                     EntitySelectorConfig(domain=["sensor"])
                 ),
-                vol.Required(OPT_ONLY_IF_HEATING, default=self._infos.get(OPT_ONLY_IF_HEATING, DEFAULTS[
-                    OPT_ONLY_IF_HEATING])): BooleanSelector(),
-                vol.Required(OPT_HEAT_TOLERANCE,
-                             default=self._infos.get(OPT_HEAT_TOLERANCE, DEFAULTS[OPT_HEAT_TOLERANCE])): NumberSelector(
+
+                vol.Required(
+                    OPT_ONLY_IF_HEATING,
+                    default=self._infos.get(OPT_ONLY_IF_HEATING, DEFAULTS[OPT_ONLY_IF_HEATING]),
+                ): BooleanSelector(),
+
+                vol.Required(
+                    OPT_HEAT_TOLERANCE,
+                    default=self._infos.get(OPT_HEAT_TOLERANCE, DEFAULTS[OPT_HEAT_TOLERANCE]),
+                ): NumberSelector(
                     NumberSelectorConfig(min=0.0, max=1.0, step=0.1)
                 ),
             })
@@ -906,7 +957,7 @@ class VersatileThermostatBaseConfigFlow(FlowHandler):
                 if mode == "fixed_temperature" and user_input.get(OPT_EARLY_TEMP) is None:
                     ds = add_suggested_values_to_schema(ui_schema, {**self._infos, **user_input})
                     return self.async_show_form(
-                        step_id="preheating",
+                        step_id="preheating_params",
                         data_schema=ds,
                         errors={OPT_EARLY_TEMP: "required"},
                         description_placeholders=self._placeholders,

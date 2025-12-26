@@ -1,3 +1,4 @@
+
 # pylint: disable=line-too-long
 """Constants for the Versatile Thermostat integration."""
 
@@ -134,6 +135,7 @@ CONF_MIN_OPENING_DEGREES = "min_opening_degrees"
 CONF_VSWITCH_ON_CMD_LIST = "vswitch_on_command"
 CONF_VSWITCH_OFF_CMD_LIST = "vswitch_off_command"
 
+
 # Deprecated
 CONF_HEATER = "heater_entity_id"
 CONF_HEATER_2 = "heater_entity2_id"
@@ -195,12 +197,14 @@ TYPE_AUTO_START_STOP_LEVELS = Literal[  # pylint: disable=invalid-name
 
 OPT_EARLY_ENABLED = "early_start_enabled"
 OPT_EARLY_SCHED   = "early_start_scheduler"
+OPT_HEAT_RATE_COEF = "heat_rate_coef"
 OPT_EARLY_MODE    = "early_start_mode"         # comfort_preset | fixed_temperature | auto_from_scheduler
 OPT_EARLY_TEMP    = "early_start_fixed_temp"
 OPT_FALLBACK_RATE = "fallback_rate_c_per_h"
 OPT_LEAD_MIN      = "min_lead_minutes"
 OPT_LEAD_MAX      = "max_lead_minutes"
 OPT_OUTDOOR       = "outdoor_temp_entity"
+
 
 # NOUVEAU : options de sécurité / conditions
 OPT_ONLY_IF_HEATING = "early_start_only_if_heating"
@@ -215,7 +219,8 @@ DEFAULTS = {
     OPT_LEAD_MIN: 5,
     OPT_LEAD_MAX: 120,
     OPT_ONLY_IF_HEATING: True,     # demandé
-    OPT_HEAT_TOLERANCE: 0.2        # °C
+    OPT_HEAT_TOLERANCE: 0.2,        # °C
+    OPT_HEAT_RATE_COEF: 2.0
 }
 
 HVAC_OFF_REASON_NAME = "hvac_off_reason"

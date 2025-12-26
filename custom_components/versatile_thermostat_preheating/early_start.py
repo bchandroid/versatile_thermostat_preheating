@@ -95,6 +95,25 @@ def _extract_temp_from_action_dict(act: dict) -> float | None:
     return None
 
 class EarlyStart:
+
+    def _compute_lead_minutes(self, cur_room_temp, target_at_trigger):
+        """
+        Calcule le nombre de minutes d'avance nécessaires pour atteindre la température cible,
+        en utilisant le coefficient de chauffe heat_rate_coef (°C/h) si défini sur vt.
+        """
+        heat_rate_coef = getattr(self.vt, "heat_rate_coef", None)
+        try:
+            rate = float(heat_rate_coef) if heat_rate_coef is not None else 1.0
+        except Exception:
+            rate = 1.0
+        if rate <= 0:
+            rate = 1.0
+        delta = target_at_trigger - cur_room_temp
+        if delta <= 0:
+            return 0
+        # lead time en minutes = (delta °C) / (rate °C/h) * 60
+        return int((delta / rate) * 60)
+        
     def __init__(self, hass, vt_entity):
         self.hass = hass
         self.vt = vt_entity
@@ -105,17 +124,31 @@ class EarlyStart:
         self._cached_next_temp = None  # <— on garde la prochaine temp du scheduler
 
     async def async_init(self):
-        _LOGGER.debug("EarlyStart.async_init() for %s", self.vt.entity_id)
+        _LOGGER.debug("%s - EarlyStart.async_init() for %s", self.vt, self.vt.entity_id)
 
         # climate → callback ASYNC accepté
         self._unsubs.append(
             async_track_state_change_event(self.hass, [self.vt.entity_id], self._on_any_state_change)
         )
 
-        sched_id = self._opt(OPT_EARLY_SCHED)
-        if sched_id:
+        sched_cfg = self._opt(OPT_EARLY_SCHED)
+
+        # Normalisation en liste
+        if not sched_cfg:
+            sched_ids = []
+        elif isinstance(sched_cfg, str):
+            sched_ids = [sched_cfg]
+        else:
+            # On suppose que c'est déjà un iterable de strings (liste/tuple)
+            sched_ids = [e for e in sched_cfg if e]
+
+        if sched_ids:
             self._unsubs.append(
-                async_track_state_change_event(self.hass, [sched_id], self._on_any_state_change)
+                async_track_state_change_event(
+                    self.hass,
+                    sched_ids,              # 👈 plusieurs entités possibles ici
+                    self._on_any_state_change,
+                )
             )
 
         out_id = self._opt(OPT_OUTDOOR)
@@ -147,162 +180,219 @@ class EarlyStart:
     # ---------- lecture scheduler ----------
     def _read_next_from_scheduler(self):
         """
-        Retourne (next_trigger_utc, next_target_temp) à partir du scheduler.
+        Retourne (next_trigger_utc, next_target_temp) à partir du/ des scheduler(s).
         Compatible Scheduler (nielsfaber) :
-          - attributes.next_trigger : ISO
-          - attributes.next_slot : index du prochain timeslot
-          - attributes.timeslots[next_slot].actions : liste d'index dans attributes.actions
-          - attributes.actions[i] : dict {service, entity_id(s), ... , temperature}
+        - attributes.next_trigger : ISO
+        - attributes.next_slot : index du prochain timeslot
+        - attributes.timeslots[next_slot].actions : liste d'index dans attributes.actions
+        - attributes.actions[i] : dict {service, entity_id(s), ... , temperature}
         """
-        sched_id = self._opt(OPT_EARLY_SCHED)
-        if not sched_id:
+        _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler: Enter _read_next_from_scheduler", self.vt)
+
+        # Normalisation : option = string (ancien format) ou liste (nouveau format multiple)
+        sched_cfg = self._opt(OPT_EARLY_SCHED)
+        _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler: raw scheduler option = %s", self.vt, sched_cfg)
+
+        if not sched_cfg:
             return None, None
 
-        st = self.hass.states.get(sched_id)
-        if not st:
-            _LOGGER.debug("EarlyStart: scheduler %s not found", sched_id)
-            return None, None
-
-        attrs = st.attributes or {}
-
-        # 1) Heure du prochain changement
-        ts = attrs.get("next_trigger")
-        if ts is None and isinstance(st.state, str) and "T" in st.state:
-            ts = st.state
-
-        next_dt_utc = None
-        if isinstance(ts, str):
+        if isinstance(sched_cfg, str):
+            sched_ids = [sched_cfg]
+        else:
+            # On essaie d'itérer dessus, et on filtre les valeurs vides
             try:
-                _dt = dt_util.parse_datetime(ts)
-                if _dt:
-                    next_dt_utc = dt_util.as_utc(_dt)
-            except Exception:
-                pass
+                sched_ids = [s for s in sched_cfg if s]
+            except TypeError:
+                # Au cas où un type exotique serait stocké
+                sched_ids = [str(sched_cfg)]
 
-        next_temp = None
+        _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler: normalized scheduler ids = %s", self.vt, sched_ids)
 
-        # 2) Tentative 1 : lecture directe (au cas où le scheduler expose déjà la temp)
-        for k in ("next_setpoint", "next_temperature", "next_target", "target", "setpoint", "temperature"):
-            v = attrs.get(k)
-            if v is None:
-                continue
-            try:
-                if isinstance(v, dict) and "temperature" in v:
-                    v = v["temperature"]
-                next_temp = float(v)
-                break
-            except Exception:
+        best_dt_utc: datetime | None = None
+        best_temp: float | None = None
+        best_sched_id: str | None = None
+
+        # Parcourt tous les schedulers sélectionnés
+        for sched_id in sched_ids:
+            st = self.hass.states.get(sched_id)
+            _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler: checking scheduler %s -> %s", self.vt, sched_id, st)
+
+            if not st:
+                _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler: scheduler %s not found", self.vt, sched_id)
                 continue
 
-        # 3) Scheduler: si pas de temp directe, déduire via next_slot/actions
-        if next_temp is None:
-            try:
-                next_slot = attrs.get("next_slot")
-                timeslots = attrs.get("timeslots") or []
-                actions = attrs.get("actions") or []
+            attrs = st.attributes or {}
 
-                # next_slot peut être str
-                if isinstance(next_slot, str) and next_slot.isdigit():
-                    next_slot = int(next_slot)
+            # 1) Heure du prochain changement
+            ts = attrs.get("next_trigger")
+            _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler(%s): next_trigger attr = %s", self.vt, sched_id, ts)
 
-                # 3.a) Essayer actions indexées dans le slot (si le slot est un dict)
-                slot = None
-                if isinstance(timeslots, list) and isinstance(next_slot, int) and 0 <= next_slot < len(timeslots):
-                    slot = timeslots[next_slot]
-                elif isinstance(timeslots, dict) and str(next_slot) in timeslots:
-                    slot = timeslots[str(next_slot)]
+            if ts is None and isinstance(st.state, str) and "T" in st.state:
+                ts = st.state
 
-                # cibles acceptées (climate + underlyings + attrs.entities)
-                target_ents: set[str] = {self.vt.entity_id.lower()}
+            _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler(%s): effective ts = %s", self.vt, sched_id, ts)
+
+            next_dt_utc = None
+            if isinstance(ts, str):
                 try:
-                    for e in getattr(self.vt, "underlying_entities", []):
-                        if isinstance(e, str):
-                            target_ents.add(e.lower())
+                    _dt = dt_util.parse_datetime(ts)
+                    if _dt:
+                        next_dt_utc = dt_util.as_utc(_dt)
                 except Exception:
-                    pass
-                ents_attr = attrs.get("entities")
-                if isinstance(ents_attr, list):
-                    for e in ents_attr:
-                        if isinstance(e, str):
-                            target_ents.add(e.lower())
+                    _LOGGER.exception("%s - EarlyStart_read_next_from_scheduler(%s): error parsing next_trigger", self.vt, sched_id)
 
-                # i) si le slot expose des actions (inline ou indexes)
-                got_from_slot = False
-                if isinstance(slot, dict) and "actions" in slot:
-                    slot_actions = slot.get("actions")
-                    idx_list: list[int] = []
-                    inline_actions: list = []
-                    if isinstance(slot_actions, int):
-                        idx_list = [slot_actions]
-                    elif isinstance(slot_actions, list):
-                        for it in slot_actions:
-                            if isinstance(it, int):
-                                idx_list.append(it)
-                            else:
-                                inline_actions.append(it)
-                    elif isinstance(slot_actions, (dict, str)):
-                        inline_actions.append(slot_actions)
+            _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler(%s): parsed next_dt_utc = %s", self.vt, sched_id, next_dt_utc)
 
-                    # Parcours des actions référencées
-                    for idx in idx_list:
-                        if isinstance(idx, int) and 0 <= idx < len(actions):
-                            act = _normalize_action(actions[idx])
-                            if not act:
-                                continue
-                            if _is_climate_set_temp_action_dict(act):
-                                act_ents = _extract_entities_from_action_dict(act)
-                                if not act_ents or (act_ents & target_ents):
-                                    t = _extract_temp_from_action_dict(act)
-                                    if t is not None:
-                                        next_temp = t
-                                        got_from_slot = True
-                                        break
-                    # Parcours des inline
-                    if not got_from_slot:
-                        for raw in inline_actions:
-                            act = _normalize_action(raw)
-                            if not act:
-                                continue
-                            if _is_climate_set_temp_action_dict(act):
-                                act_ents = _extract_entities_from_action_dict(act)
-                                if not act_ents or (act_ents & target_ents):
-                                    t = _extract_temp_from_action_dict(act)
-                                    if t is not None:
-                                        next_temp = t
-                                        got_from_slot = True
-                                        break
+            next_temp = None
 
-                # ii) sinon: fallback → prendre l'action à l'index next_slot
-                if not got_from_slot and isinstance(next_slot, int) and 0 <= next_slot < len(actions):
-                    act = _normalize_action(actions[next_slot])
-                    if _is_climate_set_temp_action_dict(act):
-                        act_ents = _extract_entities_from_action_dict(act)
-                        # si pas d'entité dans l'action, on tolère et on s'appuie sur attrs.entities
-                        if not act_ents or (act_ents & target_ents):
-                            t = _extract_temp_from_action_dict(act)
-                            if t is not None:
-                                next_temp = t
+            # 2) Tentative 1 : lecture directe (au cas où le scheduler expose déjà la temp)
+            if attrs:
+                for k in ("next_setpoint", "next_temperature", "next_target", "target", "setpoint", "temperature"):
+                    v = attrs.get(k)
+                    if v is None:
+                        continue
+                    try:
+                        if isinstance(v, dict) and "temperature" in v:
+                            v = v["temperature"]
+                        next_temp = float(v)
+                        break
+                    except Exception:
+                        continue
 
-                # Debug si toujours rien
-                if next_temp is None:
-                    _LOGGER.debug(
-                        "EarlyStart: next_slot=%s slot=%s; picked_action=%s",
-                        next_slot,
-                        str(slot)[:200] if slot is not None else None,
-                        str(actions[next_slot])[:200] if isinstance(next_slot, int) and next_slot < len(
-                            actions) else None
+            # 3) Scheduler: si pas de temp directe, déduire via next_slot/actions
+            if next_temp is None:
+                try:
+                    next_slot = attrs.get("next_slot")
+                    timeslots = attrs.get("timeslots") or []
+                    actions = attrs.get("actions") or []
+
+                    # next_slot peut être str
+                    if isinstance(next_slot, str) and next_slot.isdigit():
+                        next_slot = int(next_slot)
+
+                    # 3.a) Essayer actions indexées dans le slot (si le slot est un dict)
+                    slot = None
+                    if isinstance(timeslots, list) and isinstance(next_slot, int) and 0 <= next_slot < len(timeslots):
+                        slot = timeslots[next_slot]
+                    elif isinstance(timeslots, dict) and str(next_slot) in timeslots:
+                        slot = timeslots[str(next_slot)]
+
+                    # cibles acceptées (climate + underlyings + attrs.entities)
+                    target_ents: set[str] = {self.vt.entity_id.lower()}
+                    try:
+                        for e in getattr(self.vt, "underlying_entities", []):
+                            if isinstance(e, str):
+                                target_ents.add(e.lower())
+                    except Exception:
+                        pass
+                    ents_attr = attrs.get("entities")
+                    if isinstance(ents_attr, list):
+                        for e in ents_attr:
+                            if isinstance(e, str):
+                                target_ents.add(e.lower())
+
+                    # i) si le slot expose des actions (inline ou indexes)
+                    got_from_slot = False
+                    if isinstance(slot, dict) and "actions" in slot:
+                        slot_actions = slot.get("actions")
+                        idx_list: list[int] = []
+                        inline_actions: list = []
+                        if isinstance(slot_actions, int):
+                            idx_list = [slot_actions]
+                        elif isinstance(slot_actions, list):
+                            for it in slot_actions:
+                                if isinstance(it, int):
+                                    idx_list.append(it)
+                                else:
+                                    inline_actions.append(it)
+                        elif isinstance(slot_actions, (dict, str)):
+                            inline_actions.append(slot_actions)
+
+                        # Parcours des actions référencées
+                        for idx in idx_list:
+                            if isinstance(idx, int) and 0 <= idx < len(actions):
+                                act = _normalize_action(actions[idx])
+                                if not act:
+                                    continue
+                                if _is_climate_set_temp_action_dict(act):
+                                    act_ents = _extract_entities_from_action_dict(act)
+                                    if not act_ents or (act_ents & target_ents):
+                                        t = _extract_temp_from_action_dict(act)
+                                        if t is not None:
+                                            next_temp = t
+                                            got_from_slot = True
+                                            break
+                        # Parcours des inline
+                        if not got_from_slot:
+                            for raw in inline_actions:
+                                act = _normalize_action(raw)
+                                if not act:
+                                    continue
+                                if _is_climate_set_temp_action_dict(act):
+                                    act_ents = _extract_entities_from_action_dict(act)
+                                    if not act_ents or (act_ents & target_ents):
+                                        t = _extract_temp_from_action_dict(act)
+                                        if t is not None:
+                                            next_temp = t
+                                            got_from_slot = True
+                                            break
+
+                    # ii) sinon: fallback → prendre l'action à l'index next_slot
+                    if not got_from_slot and isinstance(next_slot, int) and 0 <= next_slot < len(actions):
+                        act = _normalize_action(actions[next_slot])
+                        if _is_climate_set_temp_action_dict(act):
+                            act_ents = _extract_entities_from_action_dict(act)
+                            # si pas d'entité dans l'action, on tolère et on s'appuie sur attrs.entities
+                            if not act_ents or (act_ents & target_ents):
+                                t = _extract_temp_from_action_dict(act)
+                                if t is not None:
+                                    next_temp = t
+
+                    # Debug si toujours rien
+                    if next_temp is None:
+                        _LOGGER.debug(
+                            "%s - EarlyStart_read_next_from_scheduler(%s): next_slot=%s slot=%s; picked_action=%s",
+                            self.vt,
+                            sched_id,
+                            next_slot,
+                            str(slot)[:200] if slot is not None else None,
+                            str(actions[next_slot])[:200] if isinstance(next_slot, int) and 0 <= next_slot < len(actions) else None,
+                        )
+
+                except Exception:
+                    _LOGGER.exception(
+                        "%s - EarlyStart_read_next_from_scheduler(%s): Exception while parsing scheduler (timeslots/actions)",
+                        self.vt,
+                        sched_id,
                     )
 
-            except Exception:
-                _LOGGER.exception("EarlyStart: Exception while parsing scheduler (timeslots/actions)")
+            # Si ce scheduler n'a pas de temps ou pas de température, on l'ignore
+            if next_dt_utc is None or next_temp is None:
+                _LOGGER.debug(
+                    "%s - EarlyStart_read_next_from_scheduler(%s): incomplete -> next_time=%s next_temp=%s (keys=%s)",
+                    self.vt,
+                    sched_id,
+                    next_dt_utc,
+                    next_temp,
+                    list(attrs.keys()),
+                )
+                continue
 
-        if next_dt_utc is None or next_temp is None:
-            _LOGGER.debug(
-                "EarlyStart: scheduler attrs keys=%s -> next_time=%s next_temp=%s",
-                list(attrs.keys()), ts, next_temp
-            )
+            # Sélectionne le scheduler avec le next_trigger le plus proche
+            if best_dt_utc is None or next_dt_utc < best_dt_utc:
+                best_dt_utc = next_dt_utc
+                best_temp = next_temp
+                best_sched_id = sched_id
 
-        return next_dt_utc, next_temp
+        _LOGGER.debug(
+            "%s - EarlyStart_read_next_from_scheduler: chosen scheduler=%s next_dt_utc=%s next_temp=%s",
+            self.vt,
+            best_sched_id,
+            best_dt_utc,
+            best_temp,
+        )
+
+        return best_dt_utc, best_temp
 
     def _current_target_temperature(self):
         """Consigne actuelle (target) lue depuis la Climate ou son état."""
@@ -370,8 +460,10 @@ class EarlyStart:
 
         next_dt_utc, next_sched_temp = self._read_next_from_scheduler()
         if not next_dt_utc:
-            _LOGGER.debug("EarlyStart: no next_trigger found on %s", self._opt(OPT_EARLY_SCHED))
+            _LOGGER.debug("%s - EarlyStart: no next_trigger found", self.vt)
             return self._publish_debug(None, None, None)
+        
+        _LOGGER.debug("%s - EarlyStart_read_next_from_scheduler temp=%s at=%s", self.vt, next_sched_temp, next_dt_utc)
 
         self._cached_next_temp = next_sched_temp  # utilisable à l'exécution
 
@@ -380,35 +472,42 @@ class EarlyStart:
         target_at_trigger = self._target_from_mode(next_sched_temp)
 
         if cur_room_temp is None or target_at_trigger is None:
-            _LOGGER.debug("EarlyStart: missing temperatures cur=%s target=%s", cur_room_temp, target_at_trigger)
+            _LOGGER.debug("%s - EarlyStart: missing temperatures cur=%s target=%s", self.vt, cur_room_temp, target_at_trigger)
             return self._publish_debug(None, None, None)
 
         # 👉 Tu veux anticiper SEULEMENT si la température du prochain scheduler
         #    est supérieure à la consigne actuelle.
-        _LOGGER.debug("EarlyStart: OPT_EARLY_MODE=%s cur_target=%f nextTemp=%f", self._opt(OPT_EARLY_MODE, "comfort_preset"), cur_target, next_sched_temp)
+        _LOGGER.debug("%s - EarlyStart: OPT_EARLY_MODE=%s cur_target=%f nextTemp=%f", self.vt, self._opt(OPT_EARLY_MODE, "comfort_preset"), cur_target, next_sched_temp)
         if self._opt(OPT_EARLY_MODE, "comfort_preset") == "auto_from_scheduler":
             if cur_target is not None and next_sched_temp is not None:
                 tol = float(self._opt(OPT_HEAT_TOLERANCE, 0.2))
                 if next_sched_temp <= (cur_target + tol):
                     _LOGGER.debug(
-                        "EarlyStart: next_sched_temp %.2f ≤ current target %.2f (+tol %.2f) -> no preheat",
-                        next_sched_temp, cur_target, tol
+                        " %s - EarlyStart: next_sched_temp %.2f ≤ current target %.2f (+tol %.2f) -> no preheat",
+                        self.vt, next_sched_temp, cur_target, tol
                     )
                     return self._publish_debug(None, 0, None)
 
         # ✅ Anticiper uniquement si besoin de chauffer (room temp < target)
         if not self._needs_heating(cur_room_temp, target_at_trigger):
-            _LOGGER.debug("EarlyStart: no heating need (cur=%.2f target=%.2f at %s)", cur_room_temp, target_at_trigger, next_dt_utc)
+            _LOGGER.debug("%s - EarlyStart: no heating need (cur=%.2f target=%.2f at %s)", self.vt, cur_room_temp, target_at_trigger, next_dt_utc)
             return self._publish_debug(None, 0, None)
 
-        rate = await self._estimate_heat_rate_c_per_h()
-        lead_min = self._compute_lead_minutes(cur_room_temp, target_at_trigger, rate)
+        heat_rate_coef = getattr(self.vt, "heat_rate_coef", None)
+        lead_min = self._compute_lead_minutes(cur_room_temp, target_at_trigger)
+        _LOGGER.debug("%s - EarlyStart: lead_min=%f heat_rate_coef=%s)", self.vt, lead_min, heat_rate_coef)
 
         fire_at = next_dt_utc - timedelta(minutes=lead_min)
         now = dt_util.utcnow()
+        # S'assurer que les deux datetimes sont offset-aware (UTC)
+        if fire_at.tzinfo is None:
+            fire_at = fire_at.replace(tzinfo=dt_util.UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=dt_util.UTC)
+
         if fire_at <= now:
-            _LOGGER.debug("EarlyStart: fire_at in the past -> skip (lead=%s)", lead_min)
-            return self._publish_debug(None, lead_min, rate)
+            _LOGGER.debug("%s - EarlyStart: fire_at in the past -> skip (lead=%s)", self.vt, lead_min)
+            return self._publish_debug(None, lead_min, heat_rate_coef)
 
         from homeassistant.helpers.event import async_track_point_in_utc_time
         @callback
@@ -417,8 +516,8 @@ class EarlyStart:
             self.hass.async_create_task(self._apply_preheat_action())
 
         self._unsub_timer = async_track_point_in_utc_time(self.hass, _timer_cb, fire_at)
-        self._publish_debug(fire_at, lead_min, rate)
-        _LOGGER.debug("EarlyStart: scheduled at %s (lead %s min, target_at_trigger=%.2f)", fire_at, lead_min, target_at_trigger)
+        self._publish_debug(fire_at, lead_min, heat_rate_coef)
+        _LOGGER.debug("%s - EarlyStart: scheduled at %s (lead %s min, target_at_trigger=%.2f)", self.vt, fire_at, lead_min, target_at_trigger)
 
     async def _fire_cb(self, _):
         await self._apply_preheat_action()

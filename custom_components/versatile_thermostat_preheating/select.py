@@ -11,11 +11,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from custom_components.versatile_thermostat.base_thermostat import (
+from custom_components.versatile_thermostat_preheating.base_thermostat import (
     ConfigData,
 )
 
-from custom_components.versatile_thermostat.vtherm_api import VersatileThermostatAPI
+from custom_components.versatile_thermostat_preheating.vtherm_api import VersatileThermostatAPI
 
 from .const import (
     DOMAIN,

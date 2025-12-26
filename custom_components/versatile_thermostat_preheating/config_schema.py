@@ -412,4 +412,5 @@ STEP_PREHEATING_DATA_SCHEMA = vol.Schema({
     # Sécurité : anticiper seulement s'il faut chauffer
     vol.Required(OPT_ONLY_IF_HEATING, default=DEFAULTS[OPT_ONLY_IF_HEATING]): bool,
     vol.Required(OPT_HEAT_TOLERANCE, default=DEFAULTS[OPT_HEAT_TOLERANCE]): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+    vol.Required(OPT_HEAT_RATE_COEF, default=1.0): vol.Coerce(float),
 })

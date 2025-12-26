@@ -799,6 +799,7 @@ class BaseThermostat(ClimateEntity, RestoreEntity, Generic[T]):
         """Return the current running hvac operation if supported.
         Need to be one of CURRENT_HVAC_*.
         """
+        _LOGGER.debug("%s - Calling hvac_action %s", self, self._hvac_mode)
         if self._hvac_mode == HVACMode.OFF:
             action = HVACAction.OFF
         elif not self.is_device_active:

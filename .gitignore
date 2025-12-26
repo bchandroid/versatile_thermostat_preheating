@@ -118,3 +118,4 @@ htmlcov
 .idea/modules.xml
 .idea/vcs.xml
 .idea/versatile_thermostat_preheating.iml
+/custom_components
